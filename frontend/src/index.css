@@ -107,7 +107,7 @@ body {
 .badge-suspicious {
   @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/30;
 }
-.badge-high-risk {
+.badge-malicious, .badge-high-risk {
   @apply bg-red-500/10 text-red-500 border border-red-500/30;
 }
 

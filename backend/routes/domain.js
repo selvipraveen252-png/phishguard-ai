@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { getDomainIntel } = require('../services/domainIntel');
-const { checkSSL } = require('../services/sslChecker');
+const WHOISAnalyzer = require('../services/WHOISAnalyzer');
+const SSLInspector = require('../services/SSLInspector');
+const DNSAnalyzer = require('../services/DNSAnalyzer');
 
 /**
  * GET /api/domain?domain=example.com
- * Full domain intelligence lookup
+ * Full domain intelligence lookup using modular analyzers
  */
 router.get('/', async (req, res, next) => {
   try {
@@ -17,20 +18,13 @@ router.get('/', async (req, res, next) => {
 
     const cleanDomain = domain.trim().replace(/^https?:\/\//, '').split('/')[0];
 
-    console.log(`🌐 Domain lookup: ${cleanDomain}`);
+    console.log(`🌐 Deep Domain Lookup: ${cleanDomain}`);
 
+    // Run lookups
+    const dnsResults = await DNSAnalyzer.resolve(cleanDomain);
     const [domainInfo, sslStatus] = await Promise.all([
-      getDomainIntel(cleanDomain).catch(e => ({ 
-        age: null, 
-        registrar: 'Unknown', 
-        country: 'Unknown',
-        error: e.message 
-      })),
-      checkSSL(cleanDomain).catch(e => ({ 
-        valid: false, 
-        status: 'NO SSL', 
-        daysRemaining: 0 
-      }))
+      WHOISAnalyzer.analyze(cleanDomain, dnsResults.ipAddresses),
+      SSLInspector.analyze(cleanDomain)
     ]);
 
     res.json({
@@ -41,10 +35,10 @@ router.get('/', async (req, res, next) => {
         country: domainInfo.country,
         creationDate: domainInfo.creationDate,
         expirationDate: domainInfo.expirationDate,
-        nameservers: domainInfo.nameservers,
+        nameservers: dnsResults.nameservers,
         hostingProvider: domainInfo.hostingProvider,
         domainAge: domainInfo.age,
-        ipAddresses: domainInfo.ipAddresses || [],
+        ipAddresses: dnsResults.ipAddresses || [],
         ssl: {
           status: sslStatus.status,
           valid: sslStatus.valid,
@@ -60,3 +54,4 @@ router.get('/', async (req, res, next) => {
 });
 
 module.exports = router;
+

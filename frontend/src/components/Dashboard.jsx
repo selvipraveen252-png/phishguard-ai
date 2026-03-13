@@ -70,7 +70,7 @@ export default function Dashboard() {
         pointHoverRadius: 6,
       },
       {
-        label: 'High Risk',
+        label: 'Malicious',
         data: data?.chartData?.highRisk || [],
         borderColor: '#EF4444',
         backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -87,13 +87,13 @@ export default function Dashboard() {
   }
 
   const doughnutData = {
-    labels: ['Safe', 'Suspicious', 'High Risk'],
+    labels: ['Safe', 'Suspicious', 'Malicious'],
     datasets: [
       {
         data: [
           data?.threatDistribution?.['SAFE'] || 0,
           data?.threatDistribution?.['SUSPICIOUS'] || 0,
-          data?.threatDistribution?.['HIGH RISK'] || 0,
+          data?.threatDistribution?.['MALICIOUS'] || 0,
         ],
         backgroundColor: ['rgba(34, 197, 94, 0.8)', 'rgba(245, 158, 11, 0.8)', 'rgba(239, 68, 68, 0.8)'],
         borderColor: ['#22C55E', '#F59E0B', '#EF4444'],
@@ -185,7 +185,7 @@ export default function Dashboard() {
           glowClass="hover:glow-cyan"
         />
         <StatCard
-          title="HIGH RISK DETECTED"
+          title="MALICIOUS DETECTED"
           value={data?.highRiskDetected?.toLocaleString()}
           subtitle="IMMEDIATE ACTION REQ"
           icon="✕"

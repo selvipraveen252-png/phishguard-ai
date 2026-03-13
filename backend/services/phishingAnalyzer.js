@@ -7,13 +7,16 @@ const SUSPICIOUS_KEYWORDS = [
   'login', 'verify', 'secure', 'update', 'account', 'bank',
   'paypal', 'password', 'confirm', 'signin', 'credential',
   'wallet', 'recovery', 'support', 'help-desk', 'ebay',
-  'apple-id', 'microsoft', 'netflix', 'amazon', 'alert'
+  'apple-id', 'microsoft', 'netflix', 'amazon', 'alert',
+  'auth', 'verification', 'billing', 'customer', 'service'
 ];
 
-const SUSPICIOUS_TLDS = [
-  '.xyz', '.top', '.gq', '.ml', '.cf', '.tk', '.ga',
-  '.pw', '.cc', '.su', '.icu', '.vip', '.online', '.site',
-  '.click', '.link', '.win', '.download', '.loan', '.work'
+const TRUSTED_DOMAINS = [
+  "google.com", "youtube.com", "facebook.com", "instagram.com",
+  "twitter.com", "linkedin.com", "wikipedia.org", "github.com",
+  "microsoft.com", "apple.com", "amazon.com", "netflix.com",
+  "openai.com", "stackoverflow.com", "reddit.com", "cloudflare.com",
+  "mozilla.org", "bing.com", "yahoo.com", "zoom.us", "figma.com", "notion.so"
 ];
 
 /**
@@ -29,119 +32,116 @@ function analyzePhishing({
 }) {
   let score = 0;
   const issues = [];
-
-  // VirusTotal malicious detection (+40)
-  if (virusTotal && virusTotal.malicious > 0) {
-    score += 40;
-    issues.push(`VirusTotal: ${virusTotal.malicious} engines flagged as malicious`);
-  }
-
-  // VirusTotal suspicious (+15)
-  if (virusTotal && virusTotal.suspicious > 0 && virusTotal.malicious === 0) {
-    score += 15;
-    issues.push(`VirusTotal: ${virusTotal.suspicious} engines flagged as suspicious`);
-  }
-
-  // Google Safe Browsing flagged (+40)
-  if (googleSafeBrowsing && !googleSafeBrowsing.isSafe) {
-    score += 40;
-    const threats = googleSafeBrowsing.threats.join(', ');
-    issues.push(`Google Safe Browsing: Threat detected - ${threats}`);
-  }
-
-  // Domain age < 30 days (+15)
-  if (domainInfo && domainInfo.age !== null && domainInfo.age < 30) {
-    score += 15;
-    issues.push(`Newly registered domain (${domainInfo.age} days old)`);
-  } else if (domainInfo && domainInfo.age !== null && domainInfo.age < 90) {
-    score += 5;
-    issues.push(`Recently registered domain (${domainInfo.age} days old)`);
-  }
-
-  // Invalid/No SSL (+10)
-  if (sslStatus && (sslStatus.status === 'NO SSL' || sslStatus.status === 'INVALID')) {
-    score += 10;
-    issues.push(`SSL Certificate: ${sslStatus.status}`);
-  } else if (sslStatus && sslStatus.status === 'EXPIRED') {
-    score += 8;
-    issues.push('SSL Certificate is expired');
-  }
-
-  // Suspicious keywords in URL (+10)
+  const domainLower = domain.toLowerCase();
   const urlLower = url.toLowerCase();
+
+  // LAYER 1 — TRUSTED DOMAIN WHITELIST
+  const isWhitelisted = TRUSTED_DOMAINS.some(td => 
+    domainLower === td || domainLower.endsWith(`.${td}`)
+  );
+
+  if (isWhitelisted) {
+    return {
+      threatScore: 0,
+      phishingProbability: 'Very Low',
+      riskLevel: 'TRUSTED PLATFORM',
+      issues: ['Validated: Trusted Enterprise Platform']
+    };
+  }
+
+  // LAYER 6 — GOOGLE SAFE BROWSING (CRITICAL)
+  if (googleSafeBrowsing && !googleSafeBrowsing.isSafe) {
+    score += 85; 
+    issues.push('Blacklist: High Risk - Flagged by Google Safe Browsing');
+  }
+
+  // LAYER 5 — VIRUSTOTAL INTELLIGENCE
+  const vtMalicious = virusTotal?.malicious || 0;
+  if (vtMalicious >= 2) {
+    score += Math.min(60, vtMalicious * 15);
+    issues.push(`Intel: ${vtMalicious} Security Engines flagged as Malicious`);
+  } else if (vtMalicious === 1) {
+    issues.push('Note: Single security flag detected (Potential False Positive)');
+    score += 10;
+  }
+
+  // LAYER 2 — PHISHING DOMAIN PATTERN DETECTION
+  // Typosquatting / Lookalikes (Simple check for common impersonations)
+  const impersonationTargets = ['google', 'paypal', 'facebook', 'microsoft', 'apple', 'amazon', 'netflix'];
+  const hasLookalike = impersonationTargets.some(target => 
+    domainLower.includes(target) && domainLower !== target && !domainLower.endsWith(`.${target}.com`)
+  );
+  if (hasLookalike) {
+    score += 35;
+    issues.push('Pattern: Suspicious Domain Typosquatting/Impersonation detected');
+  }
+
+  // Extra hyphens
+  const hyphenCount = (domain.match(/-/g) || []).length;
+  if (hyphenCount >= 2) {
+    score += 15;
+    issues.push('Pattern: Excessive hyphens in domain structure');
+  }
+
+  // Suspicious keywords
   const foundKeywords = SUSPICIOUS_KEYWORDS.filter(kw => urlLower.includes(kw));
   if (foundKeywords.length > 0) {
-    score += Math.min(10, foundKeywords.length * 3);
-    issues.push(`Suspicious keywords detected: ${foundKeywords.slice(0, 3).join(', ')}`);
+    score += 20;
+    issues.push(`Pattern: Suspicious keywords detected (${foundKeywords.slice(0, 2).join(', ')})`);
   }
 
-  // Suspicious TLD (+10)
-  const domainLower = domain.toLowerCase();
-  const foundTLD = SUSPICIOUS_TLDS.find(tld => domainLower.endsWith(tld));
-  if (foundTLD) {
+  // LAYER 4 — DOMAIN REPUTATION ANALYSIS
+  // Domain Age
+  if (domainInfo && domainInfo.age !== null) {
+    if (domainInfo.age < 30) {
+      score += 40;
+      issues.push('Reputation: Critical - Domain is less than 30 days old');
+    } else if (domainInfo.age < 90) {
+      score += 20;
+      issues.push('Reputation: Suspicious - Recently registered domain');
+    }
+  }
+
+  // SSL Validity
+  const hasValidSSL = sslStatus && sslStatus.valid && sslStatus.status === 'VALID';
+  if (!hasValidSSL) {
+    score += 25;
+    issues.push(`Reputation: Security risk - Invalid or missing SSL (${sslStatus?.status || 'NO SSL'})`);
+  }
+
+  // Hosting / Registrar Risk
+  if (domainInfo?.registrar === 'Unknown') {
     score += 10;
-    issues.push(`Suspicious TLD detected: ${foundTLD}`);
+    issues.push('Reputation: Unknown or obfuscated registrar');
   }
 
-  // IP address as domain (+15)
-  const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
-  if (ipPattern.test(domain)) {
-    score += 15;
-    issues.push('URL uses IP address instead of domain name');
-  }
+  // Final score normalization
+  score = Math.max(0, Math.min(100, score));
 
-  // Multiple subdomains (+8)
-  const subdomain = domain.replace(/^www\./, '');
-  const parts = subdomain.split('.');
-  if (parts.length > 3) {
-    score += 8;
-    issues.push(`Excessive subdomains detected (${parts.length - 2} levels)`);
-  }
-
-  // Very long URL (+5)
-  if (url.length > 100) {
-    score += 5;
-    issues.push(`Unusually long URL (${url.length} characters)`);
-  }
-
-  // URL encoding / obfuscation (+8)
-  const encodingPattern = /%[0-9a-fA-F]{2}/g;
-  const encodedParts = url.match(encodingPattern) || [];
-  if (encodedParts.length > 3) {
-    score += 8;
-    issues.push(`Heavy URL encoding detected (${encodedParts.length} encoded characters)`);
-  }
-
-  // Hyphen-heavy domain (+5)
-  const hyphenCount = (domain.match(/-/g) || []).length;
-  if (hyphenCount >= 3) {
-    score += 5;
-    issues.push(`Multiple hyphens in domain name (${hyphenCount} hyphens)`);
-  }
-
-  // Cap at 100
-  score = Math.min(100, score);
-
-  // Determine risk level
+  // FINAL THREAT SCORING MODEL
+  // 0-20 → SAFE, 21-40 → LOW RISK, 41-70 → SUSPICIOUS, 71-100 → HIGH RISK
   let riskLevel;
   let phishingProbability;
 
-  if (score <= 25) {
+  if (score <= 20) {
     riskLevel = 'SAFE';
     phishingProbability = 'Low';
-  } else if (score <= 60) {
+  } else if (score <= 40) {
+    riskLevel = 'LOW RISK';
+    phishingProbability = 'Moderate';
+  } else if (score <= 70) {
     riskLevel = 'SUSPICIOUS';
-    phishingProbability = 'Medium';
+    phishingProbability = 'High';
   } else {
     riskLevel = 'HIGH RISK';
-    phishingProbability = 'High';
+    phishingProbability = 'Critical';
   }
 
   return {
     threatScore: score,
     phishingProbability,
     riskLevel,
-    issues
+    issues: issues.length > 0 ? issues : ['Validated: No significant threat indicators found']
   };
 }
 

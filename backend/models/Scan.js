@@ -23,12 +23,16 @@ const scanSchema = new mongoose.Schema({
   },
   riskLevel: {
     type: String,
-    enum: ['SAFE', 'SUSPICIOUS', 'HIGH RISK'],
+    enum: ['SAFE', 'LOW RISK', 'SUSPICIOUS', 'HIGH RISK', 'MALICIOUS', 'TRUSTED PLATFORM', 'INVALID DOMAIN'],
     default: 'SAFE'
   },
   issues: {
     type: [String],
     default: []
+  },
+  piracyStatus: {
+    type: String,
+    default: 'No Piracy Signals'
   },
   sslStatus: {
     valid: { type: Boolean, default: false },
@@ -43,8 +47,10 @@ const scanSchema = new mongoose.Schema({
     country: { type: String, default: null },
     creationDate: { type: String, default: null },
     expirationDate: { type: String, default: null },
+    hostingProvider: { type: String, default: 'Unknown' },
     nameservers: { type: [String], default: [] }
   },
+
   virusTotal: {
     malicious: { type: Number, default: 0 },
     suspicious: { type: Number, default: 0 },

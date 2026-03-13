@@ -4,7 +4,7 @@ import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
 const ThreatGauge = ({ score }) => {
-  const color = score > 60 ? '#EF4444' : score > 25 ? '#F59E0B' : '#22C55E'
+  const color = score > 50 ? '#EF4444' : score > 20 ? '#F59E0B' : '#22C55E'
   const offset = 251.3 - (score / 100) * 251.3
 
   return (
@@ -35,6 +35,8 @@ const ThreatGauge = ({ score }) => {
   )
 }
 
+import ScanProgress from './ScanProgress'
+
 export default function ScanPage() {
   const [url, setUrl] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -52,15 +54,17 @@ export default function ScanPage() {
 
     try {
       const res = await scanUrl(url.trim())
-      setResult(res.data)
+      let finalData = res.data
       
       // Fetch IP Intelligence
       try {
         const ipData = await getIPIntelligence(res.data.domain)
-        setResult(prev => ({ ...prev, ipIntel: ipData }))
+        finalData = { ...finalData, ipIntel: ipData }
       } catch (ipErr) {
         console.warn('IP Intelligence fetch failed', ipErr)
       }
+
+      setResult(finalData)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -96,9 +100,21 @@ export default function ScanPage() {
     }
   }
 
-  const riskClass = result?.riskLevel === 'HIGH RISK' ? 'red' 
-                  : result?.riskLevel === 'SUSPICIOUS' ? 'yellow' 
-                  : 'green'
+  const riskClass = 
+    result?.riskLevel === 'HIGH RISK' || result?.riskLevel === 'MALICIOUS' ? 'red' :
+    result?.riskLevel === 'SUSPICIOUS' ? 'yellow' : 
+    result?.riskLevel === 'LOW RISK' ? 'cyan' :
+    'green';
+
+  const getBadgeClass = (level) => {
+    if (!level) return 'badge-safe';
+    const l = level.toLowerCase();
+    if (l === 'high risk' || l === 'malicious') return 'badge-malicious';
+    if (l === 'suspicious') return 'badge-suspicious';
+    if (l === 'low risk') return 'badge-safe border-cyber-cyan/30 text-cyber-cyan bg-cyber-cyan/5';
+    if (l === 'trusted platform') return 'badge-safe border-cyber-green text-cyber-green bg-cyber-green/10';
+    return 'badge-safe';
+  }
 
   return (
     <div className="space-y-6 animate-fade-in relative z-10">
@@ -133,6 +149,8 @@ export default function ScanPage() {
           </button>
         </form>
       </div>
+
+      {scanning && !result && <ScanProgress isScanning={scanning} />}
 
       {error && (
         <div className="bg-cyber-red/10 border border-cyber-red text-cyber-red px-4 py-3 rounded-lg font-mono text-sm">
@@ -175,7 +193,7 @@ export default function ScanPage() {
                 <div className="space-y-4 flex-1 ml-8">
                   <div>
                     <span className="block text-gray-500 font-mono text-[10px] uppercase mb-1">Risk Classification</span>
-                    <span className={`badge badge-${result.riskLevel === 'HIGH RISK' ? 'high-risk' : result.riskLevel.toLowerCase()}`}>
+                    <span className={`badge ${getBadgeClass(result.riskLevel)}`}>
                       {result.riskLevel}
                     </span>
                   </div>
@@ -293,6 +311,35 @@ export default function ScanPage() {
                 </div>
               </div>
             )}
+
+            {/* 6. Piracy Indicator */}
+            <div className="p-6 bg-gray-900/50 rounded-xl border border-cyber-border relative overflow-hidden group">
+              <div className={`absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl transition-all ${
+                result.piracyStatus === 'High Piracy Risk' ? 'bg-cyber-red/10' : 
+                result.piracyStatus === 'Possible Piracy' ? 'bg-cyber-yellow/10' : 'bg-cyber-green/5'
+              }`}></div>
+              <h3 className="text-gray-400 font-mono text-xs uppercase tracking-widest mb-6">6. PIRACY INDICATOR</h3>
+              <div className="flex items-center gap-4 py-2">
+                <div className={`w-3 h-3 rounded-full animate-pulse ${
+                  result.piracyStatus === 'High Piracy Risk' ? 'bg-cyber-red shadow-[0_0_10px_rgba(239,68,68,0.5)]' :
+                  result.piracyStatus === 'Possible Piracy' ? 'bg-cyber-yellow shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 
+                  'bg-cyber-green shadow-[0_0_10px_rgba(34,197,94,0.5)]'
+                }`}></div>
+                <div className="font-mono text-sm">
+                  <span className="text-gray-500 mr-2 lowercase">status:</span>
+                  <span className={`uppercase font-bold ${
+                    result.piracyStatus === 'High Piracy Risk' ? 'text-cyber-red' :
+                    result.piracyStatus === 'Possible Piracy' ? 'text-cyber-yellow' : 
+                    'text-cyber-green'
+                  }`}>
+                    {result.piracyStatus || 'No Piracy Signals'}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-4 text-[10px] text-gray-500 font-mono uppercase tracking-tighter opacity-50">
+                AI Pattern Matching: KEYWORD_CHECK_V2
+              </p>
+            </div>
 
           </div>
         </div>

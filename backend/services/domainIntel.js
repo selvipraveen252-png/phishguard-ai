@@ -2,6 +2,66 @@ const dns = require('dns').promises;
 const whois = require('whois-json');
 const axios = require('axios');
 
+const { checkSSL } = require('./sslChecker');
+
+/**
+ * Check if a domain is active via DNS, HTTP, or SSL
+ * A domain is ACTIVE if:
+ * - DNS resolution succeeds
+ * - OR HTTP response exists (status 200–499)
+ * - OR SSL certificate is detected
+ */
+async function checkDomainAvailability(domain) {
+  const cleanDomain = domain.split(':')[0].replace(/^www\./, '');
+  
+  // 1. Check DNS resolution first (most efficient)
+  try {
+    // dns.lookup follows OS resolver - more reliable than resolve4 for general availability
+    await dns.lookup(cleanDomain);
+    return true;
+  } catch (dnsErr) {
+    // DNS failed, continue to other checks
+  }
+
+  // 2. Check HTTP status (200-499)
+  try {
+    // Use GET with 1 byte limit for better compatibility than HEAD (some sites block HEAD)
+    const response = await axios.get(`http://${cleanDomain}`, { 
+      timeout: 5000,
+      validateStatus: (status) => status >= 200 && status < 500,
+      maxContentLength: 1, // Only need status code
+      maxRedirects: 5
+    });
+    return true;
+  } catch (httpErr) {
+    // If HTTP fails, try HTTPS specifically
+    try {
+      await axios.get(`https://${cleanDomain}`, {
+        timeout: 5000,
+        validateStatus: (status) => status >= 200 && status < 500,
+        maxContentLength: 1,
+        maxRedirects: 5
+      });
+      return true;
+    } catch (httpsErr) {
+      // Continue to SSL check
+    }
+  }
+
+  // 3. Check SSL Certificate (Port 443)
+  try {
+    const ssl = await checkSSL(cleanDomain);
+    // If status is not 'NO SSL', then something responded on port 443
+    if (ssl && ssl.status !== 'NO SSL' && ssl.status !== 'UNKNOWN') {
+      return true;
+    }
+  } catch (sslErr) {
+    // Final failure
+  }
+
+  return false;
+}
+
 /**
  * Get WHOIS and DNS information for a domain
  * @param {string} domain - Domain to check
@@ -9,6 +69,8 @@ const axios = require('axios');
  */
 async function getDomainIntel(domain) {
   const cleanDomain = domain.split(':')[0].replace(/^www\./, '');
+  
+  const isActive = await checkDomainAvailability(cleanDomain);
   
   let whoisData = {};
   let dnsData = {};
@@ -98,6 +160,7 @@ async function getDomainIntel(domain) {
   }
 
   return {
+    isActive,
     age: domainAge,
     registrar: registrar || 'Unknown',
     country: country || 'Unknown',
@@ -121,7 +184,7 @@ function extractWhoisField(data, keys) {
 }
 
 /**
- * Get IP intelligence for a domain
+ * Get IP intelligence for a domain with fallbacks
  * @param {string} domain 
  * @returns {object}
  */
@@ -131,11 +194,9 @@ async function getIPIntelligence(domain) {
     
     let ip = null;
     try {
-      // dns.lookup follows the OS resolver logic
       const lookup = await dns.lookup(cleanDomain);
       ip = lookup.address;
     } catch (dnsErr) {
-      // Fallback to direct DNS resolution
       const addresses = await dns.resolve4(cleanDomain).catch(() => []);
       if (addresses.length > 0) {
         ip = addresses[0];
@@ -146,28 +207,37 @@ async function getIPIntelligence(domain) {
       throw new Error('Could not resolve domain to IP Address');
     }
     
-    const token = process.env.IPINFO_API_KEY;
-    const response = await axios.get(`https://ipinfo.io/${ip}?token=${token}`, { timeout: 10000 });
-    const data = response.data;
-    
-    // IPinfo's org often contains ASN like "AS15169 Google LLC"
-    let asn = data.asn;
-    if (!asn && data.org && data.org.startsWith('AS')) {
-      asn = data.org.split(' ')[0];
+    // Attempt multiple APIs for reliability
+    const apis = [
+      { url: `https://ipinfo.io/${ip}/json?token=${process.env.IPINFO_API_KEY}`, parse: d => ({ ip: d.ip, country: d.country, region: d.region, city: d.city, org: d.org, asn: d.asn || (d.org?.startsWith('AS') ? d.org.split(' ')[0] : 'Unknown') }) },
+      { url: `https://ipapi.co/${ip}/json/`, parse: d => ({ ip: d.ip, country: d.country_code, region: d.region, city: d.city, org: d.org, asn: d.asn }) },
+      { url: `https://ipwhois.app/json/${ip}`, parse: d => ({ ip: d.ip, country: d.country_code, region: d.region, city: d.city, org: d.org || d.isp, asn: d.asn }) }
+    ];
+
+    for (const api of apis) {
+      try {
+        const res = await axios.get(api.url, { timeout: 4000 });
+        if (res.data && (res.data.ip || res.data.success !== false)) {
+          return api.parse(res.data);
+        }
+      } catch (e) {
+        continue;
+      }
     }
 
     return {
-      ip: data.ip || ip,
-      country: data.country || 'Unknown',
-      region: data.region || 'Unknown',
-      city: data.city || 'Unknown',
-      org: data.org || 'Unknown',
-      asn: asn || 'Unknown'
+      ip,
+      country: 'Unknown',
+      region: 'Unknown',
+      city: 'Unknown',
+      org: 'Unknown',
+      asn: 'Unknown'
     };
   } catch (err) {
     throw new Error(`IP Intelligence lookup failed: ${err.message}`);
   }
 }
+
 
 async function getHostingProvider(ip) {
   try {

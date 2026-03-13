@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 const RiskBadge = ({ level }) => {
-  if (level === 'HIGH RISK') return <span className="badge badge-high-risk"><span className="w-1.5 h-1.5 rounded-full bg-cyber-red animate-pulse"></span> HIGH RISK</span>
+  if (level === 'MALICIOUS') return <span className="badge badge-malicious"><span className="w-1.5 h-1.5 rounded-full bg-cyber-red animate-pulse"></span> MALICIOUS</span>
   if (level === 'SUSPICIOUS') return <span className="badge badge-suspicious"><span className="w-1.5 h-1.5 rounded-full bg-cyber-yellow"></span> SUSPICIOUS</span>
   return <span className="badge badge-safe"><span className="w-1.5 h-1.5 rounded-full bg-cyber-green"></span> SAFE</span>
 }
@@ -14,7 +14,7 @@ const SSLBadge = ({ status }) => {
 }
 
 const ScoreBar = ({ score }) => {
-  const color = score > 60 ? 'bg-cyber-red' : score > 25 ? 'bg-cyber-yellow' : 'bg-cyber-green'
+  const color = score > 50 ? 'bg-cyber-red' : score > 20 ? 'bg-cyber-yellow' : 'bg-cyber-green'
   return (
     <div className="flex items-center gap-3">
       <div className="w-16 h-1 bg-gray-800 rounded-full overflow-hidden">

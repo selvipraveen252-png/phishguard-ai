@@ -1,15 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const Scan = require('../models/Scan');
-const { checkGoogleSafeBrowsing } = require('../services/googleSafeBrowsing');
-const { checkVirusTotal } = require('../services/virusTotal');
-const { checkSSL } = require('../services/sslChecker');
-const { getDomainIntel } = require('../services/domainIntel');
-const { analyzePhishing, extractDomain, normalizeUrl } = require('../services/phishingAnalyzer');
+const ThreatEngine = require('../services/ThreatEngine');
+const { extractDomain, normalizeUrl } = require('../services/phishingAnalyzer');
 
 /**
  * POST /api/scan
- * Full phishing analysis pipeline
+ * Full phishing analysis pipeline using modular ThreatEngine
  */
 router.post('/', async (req, res, next) => {
   try {
@@ -31,27 +28,12 @@ router.post('/', async (req, res, next) => {
 
     const domain = extractDomain(normalizedUrl);
 
-    console.log(`🔍 Scanning: ${normalizedUrl} (Domain: ${domain})`);
+    console.log(`🔍 Deep Scan Initiated: ${normalizedUrl} (Domain: ${domain})`);
 
-    // Run all analysis in parallel for speed
-    const [googleSafeBrowsing, virusTotal, sslStatus, domainInfo] = await Promise.all([
-      checkGoogleSafeBrowsing(normalizedUrl).catch(e => ({ isSafe: true, threats: [], error: e.message })),
-      checkVirusTotal(normalizedUrl).catch(e => ({ malicious: 0, suspicious: 0, harmless: 0, undetected: 0, totalEngines: 0, error: e.message })),
-      checkSSL(domain).catch(e => ({ valid: false, status: 'NO SSL', daysRemaining: 0, error: e.message })),
-      getDomainIntel(domain).catch(e => ({ age: null, registrar: 'Unknown', country: 'Unknown', error: e.message }))
-    ]);
+    // Use the new ThreatEngine for analysis
+    const analysis = await ThreatEngine.analyze(normalizedUrl, domain);
 
-    // Compute phishing score
-    const analysis = analyzePhishing({
-      url: normalizedUrl,
-      domain,
-      googleSafeBrowsing,
-      virusTotal,
-      sslStatus,
-      domainInfo
-    });
-
-    // Build full result
+    // Build full result (Ensuring compatibility with existing frontend JSON structure)
     const result = {
       url: normalizedUrl,
       domain,
@@ -59,44 +41,22 @@ router.post('/', async (req, res, next) => {
       phishingProbability: analysis.phishingProbability,
       riskLevel: analysis.riskLevel,
       issues: analysis.issues,
-      sslStatus: {
-        valid: sslStatus.valid,
-        validFrom: sslStatus.validFrom,
-        validTo: sslStatus.validTo,
-        daysRemaining: sslStatus.daysRemaining,
-        status: sslStatus.status
-      },
-      domainInfo: {
-        age: domainInfo.age,
-        registrar: domainInfo.registrar,
-        country: domainInfo.country,
-        creationDate: domainInfo.creationDate,
-        expirationDate: domainInfo.expirationDate,
-        nameservers: domainInfo.nameservers
-      },
-      virusTotal: {
-        malicious: virusTotal.malicious,
-        suspicious: virusTotal.suspicious,
-        harmless: virusTotal.harmless,
-        undetected: virusTotal.undetected,
-        totalEngines: virusTotal.totalEngines,
-        permalink: virusTotal.permalink,
-        scanDate: virusTotal.scanDate
-      },
-      googleSafeBrowsing: {
-        isSafe: googleSafeBrowsing.isSafe,
-        threats: googleSafeBrowsing.threats
-      }
+      piracyStatus: analysis.piracyStatus,
+      sslStatus: analysis.sslStatus,
+      domainInfo: analysis.domainInfo,
+      virusTotal: analysis.virusTotal,
+      googleSafeBrowsing: analysis.googleSafeBrowsing
     };
 
     // Save to MongoDB
     const scan = new Scan(result);
     await scan.save();
 
-    console.log(`✅ Scan saved: ${domain} | Score: ${analysis.threatScore} | Risk: ${analysis.riskLevel}`);
+    console.log(`✅ Deep Scan Complete: ${domain} | Score: ${analysis.threatScore} | Risk: ${analysis.riskLevel}`);
 
     res.json({ success: true, data: { ...result, _id: scan._id, createdAt: scan.createdAt } });
   } catch (err) {
+    console.error(`❌ Scan failed for ${req.body.url}:`, err.message);
     next(err);
   }
 });
@@ -132,3 +92,4 @@ router.get('/history', async (req, res, next) => {
 });
 
 module.exports = router;
+

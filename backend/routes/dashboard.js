@@ -26,7 +26,7 @@ router.get('/', async (req, res, next) => {
     ] = await Promise.all([
       Scan.countDocuments(),
       Scan.countDocuments({ createdAt: { $gte: startOfDay } }),
-      Scan.countDocuments({ riskLevel: 'HIGH RISK' }),
+      Scan.countDocuments({ riskLevel: 'MALICIOUS' }),
       Scan.countDocuments({ riskLevel: 'SUSPICIOUS' }),
       Scan.countDocuments({ riskLevel: 'SAFE' }),
       Scan.find().sort({ createdAt: -1 }).limit(10).lean(),
@@ -40,7 +40,7 @@ router.get('/', async (req, res, next) => {
             },
             count: { $sum: 1 },
             highRisk: {
-              $sum: { $cond: [{ $eq: ['$riskLevel', 'HIGH RISK'] }, 1, 0] }
+              $sum: { $cond: [{ $eq: ['$riskLevel', 'MALICIOUS'] }, 1, 0] }
             }
           }
         },
@@ -84,7 +84,7 @@ router.get('/', async (req, res, next) => {
     };
 
     // Format threat distribution
-    const threatMap = { 'SAFE': 0, 'SUSPICIOUS': 0, 'HIGH RISK': 0 };
+    const threatMap = { 'SAFE': 0, 'SUSPICIOUS': 0, 'MALICIOUS': 0 };
     threatDistribution.forEach(item => {
       if (threatMap[item._id] !== undefined) {
         threatMap[item._id] = item.count;
